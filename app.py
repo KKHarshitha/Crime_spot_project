@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 import folium
-import matplotlib.pyplot as plt
 from streamlit_folium import folium_static
-from statsmodels.tsa.arima.model import ARIMA
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
 
-# Load the datasets
+# Load the dataset
 @st.cache_data
 def load_crime_data():
     return pd.read_pickle('crime_data.pkl')
@@ -17,7 +19,6 @@ def load_location_data():
 crime_data = load_crime_data()
 location_data = load_location_data()
 
-# Capitalize state and district names for consistency
 crime_data['state/ut'] = crime_data['state/ut'].str.title()
 crime_data['district'] = crime_data['district'].str.title()
 location_data['State'] = location_data['State'].str.title()
@@ -39,11 +40,36 @@ def calculate_crime_severity(df):
     crime_index = (weighted_sum / max_possible) * 100 if max_possible > 0 else 0
     return round(crime_index, 2)
 
-# Page selection state management
-if 'page' not in st.session_state:
-    st.session_state.page = 'StateInputPage'
+# Machine Learning Model for Crime Hotspot Prediction
+def train_model():
+    crime_data['severity_index'] = crime_data.apply(lambda x: calculate_crime_severity(pd.DataFrame([x])), axis=1)
+    
+    features = ['year', 'state/ut', 'district'] + list(crime_weights.keys())
+    label_encoder = LabelEncoder()
+    crime_data['state/ut'] = label_encoder.fit_transform(crime_data['state/ut'])
+    crime_data['district'] = label_encoder.fit_transform(crime_data['district'])
+    
+    X = crime_data[features]
+    y = (crime_data['severity_index'] > 50).astype(int)  # 1 for hotspot, 0 for non-hotspot
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    
+    return model, label_encoder
 
-# State Input Page - State and District Selection
+model, label_encoder = train_model()
+
+def predict_hotspots(state, district):
+    state_encoded = label_encoder.transform([state])[0]
+    district_encoded = label_encoder.transform([district])[0]
+    
+    latest_year = crime_data['year'].max()
+    input_data = [[latest_year, state_encoded, district_encoded] + [crime_data[col].mean() for col in crime_weights.keys()]]
+    prediction = model.predict(input_data)[0]
+    return 'Hotspot' if prediction == 1 else 'Safe Zone'
+
+# State Selection Page
 def state_input_page():
     st.title("🌍 Crime Data Analysis & Safety Insights")
     state = st.selectbox('Select State/UT:', crime_data['state/ut'].unique())
@@ -98,88 +124,17 @@ def crime_analysis_page():
     st.subheader("Crime Severity Index by District")
     df_severity = pd.DataFrame(district_severity.items(), columns=['District', 'Crime Severity Index']).sort_values(by='Crime Severity Index', ascending=False)
     st.dataframe(df_severity)
+    
+    # Predict and Display Hotspot Status
+    selected_district = st.selectbox("Select a District for Prediction:", list(district_severity.keys()))
+    hotspot_prediction = predict_hotspots(state, selected_district)
+    st.metric(label="Crime Hotspot Prediction", value=hotspot_prediction)
 
-# Home Page - State and District Selection
+# Main code for app flow
+if 'page' not in st.session_state:
+    st.session_state.page = 'StateInputPage'
+
 if st.session_state.page == 'StateInputPage':
     state_input_page()
-
-# Crime Data Page - Display insights and analysis
-if st.session_state.page == 'CrimeAnalysisPage':
-    state = st.session_state.state
-    district = st.selectbox('Select District:', crime_data[crime_data['state/ut'] == state]['district'].unique())
-    
-    filtered_data = crime_data[
-        (crime_data['state/ut'] == state) &
-        (crime_data['district'] == district) &
-        (crime_data['year'].isin([2023, 2024]))
-    ]
-    
-    st.subheader(f'Crime Data for {district}, {state}')
-    
-    # Crime Severity Index
-    crime_severity_index = calculate_crime_severity(filtered_data)
-    st.metric(label="Crime Severity Index (Higher is riskier)", value=crime_severity_index)
-    
-    if crime_severity_index < 40:
-        st.success("🟢 This area is relatively safe.")
-    elif crime_severity_index < 70:
-        st.warning("🟠 Moderate risk; stay cautious.")
-    else:
-        st.error("🔴 High risk! Precaution is advised.")
-
-    # Crime Frequency Analysis
-    st.subheader('Crime Distribution')
-    crime_types = ['murder', 'rape', 'kidnapping & abduction', 'robbery', 'burglary', 'dowry deaths']
-    crime_frequencies = filtered_data[crime_types].sum().sort_values(ascending=False)
-    st.bar_chart(crime_frequencies)
-    
-    # Crime Trend Visualization (2021-2024)
-    st.subheader('Crime Trends Over the Years')
-    trend_data = crime_data[(crime_data['state/ut'] == state) & (crime_data['district'] == district) & (crime_data['year'].isin([2021, 2022, 2023, 2024]))]
-    
-    # Create a combined plot for all crime types across years
-    plt.figure(figsize=(10, 6))
-    for crime in crime_types:
-        crime_sum_by_year = trend_data.groupby('year')[crime].sum()
-        plt.plot(crime_sum_by_year.index, crime_sum_by_year.values, label=crime)
-    
-    plt.title(f'Crime Trends for {district}, {state} (2021-2024)')
-    plt.xlabel('Year')
-    plt.ylabel('Crime Count')
-    plt.legend(title="Crime Types")
-    st.pyplot(plt)
-    
-    # Safety Recommendations
-    st.subheader('Safety Recommendations')
-    if crime_frequencies['murder'] > 50:
-        st.warning("🔴 Avoid high-crime areas at night and stay vigilant.")
-    if crime_frequencies['rape'] > 30:
-        st.warning("⚠️ Travel in groups and use verified transport services.")
-    if crime_frequencies['burglary'] > 100:
-        st.warning("🏠 Install security systems and inform neighbors when away.")
-    
-    # Check if latitude and longitude columns exist in filtered_data
-    if 'latitude' in filtered_data.columns and 'longitude' in filtered_data.columns:
-        try:
-            # Print the columns and the first few rows of filtered_data for debugging
-            st.write("Columns in filtered_data:", filtered_data.columns)
-            st.write("First few rows of filtered_data:", filtered_data.head())
-
-            # Get the average latitude and longitude for the map center
-            avg_lat = filtered_data['latitude'].mean()
-            avg_lon = filtered_data['longitude'].mean()
-
-            # Create a map centered around the mean latitude and longitude
-            m = folium.Map(location=[avg_lat, avg_lon], zoom_start=10)
-            
-            # Add crime markers to the map
-            for idx, row in filtered_data.iterrows():
-                folium.Marker([row['latitude'], row['longitude']], popup=f"Crime: {row['murder']} Murders").add_to(m)
-            
-            folium_static(m)
-        
-        except Exception as e:
-            st.error(f"Error generating map: {e}")
-    else:
-        st.warning("Latitude and/or Longitude data is missing from the selected district. Please check the data.")
-        st.write("Columns in filtered_data:", filtered_data.columns)  # Display columns to verify the issue
+elif st.session_state.page == 'CrimeAnalysisPage':
+    crime_analysis_page()
