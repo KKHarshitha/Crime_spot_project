@@ -1,122 +1,166 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import folium
 from streamlit_folium import folium_static
-from statsmodels.tsa.arima.model import ARIMA
+import matplotlib.pyplot as plt
 
 # Load the dataset
 @st.cache_data
-def load_data():
+def load_crime_data():
     return pd.read_pickle('crime_data.pkl')
 
-data = load_data()
+@st.cache_data
+def load_location_data():
+    return pd.read_pickle('state_district_lat_long.pkl')
 
-# Capitalize state and district names for consistency
-data['state/ut'] = data['state/ut'].str.title()
-data['district'] = data['district'].str.title()
+crime_data = load_crime_data()
+location_data = load_location_data()
 
-# Page selection state management
-if 'page' not in st.session_state:
-    st.session_state.page = 'Home'
+crime_data['state/ut'] = crime_data['state/ut'].str.title()
+crime_data['district'] = crime_data['district'].str.title()
+location_data['State'] = location_data['State'].str.title()
+location_data['District'] = location_data['District'].str.title()
 
-# Home page - State and District selection
-if st.session_state.page == 'Home':
-    st.title('Crime Data Analysis & Safety Insights')
+# Crime Severity Score Calculation
+crime_weights = {
+    'murder': 5,
+    'rape': 4,
+    'kidnapping & abduction': 4,
+    'robbery': 3,
+    'burglary': 3,
+    'dowry deaths': 3
+}
 
-    state = st.selectbox('Select State/UT:', data['state/ut'].unique())
+def calculate_crime_severity(df):
+    weighted_sum = sum(df[col].sum() * weight for col, weight in crime_weights.items())
+    max_possible = sum(500 * weight for weight in crime_weights.values())
+    crime_index = (weighted_sum / max_possible) * 100 if max_possible > 0 else 0
+    return round(crime_index, 2)
 
-    districts = data[data['state/ut'] == state]['district'].unique()
+# Home Page UI - Login Form
+def login_page():
+    st.title("🌍 Crime Data Analysis & Safety Insights")
+    st.subheader("🔐 Please Log in to Continue")
+
+    name = st.text_input("Enter your name:")
+    age = st.number_input("Enter your age:")
+    gender = st.selectbox("Select your gender:", ["Male", "Female", "Other"])
+
+    if st.button("Proceed to Next Step"):
+        if name and age and gender:
+            st.session_state.name = name
+            st.session_state.age = age
+            st.session_state.gender = gender
+            st.session_state.page = 'LocationInputPage'
+        else:
+            st.warning("Please fill in all the fields.")
+
+# Second Page - Location selection for Crime Analysis
+def location_input_page():
+    st.title("🌍 Enter Your Location")
+    state = st.selectbox('Select State/UT:', crime_data['state/ut'].unique())
+    districts = crime_data[crime_data['state/ut'] == state]['district'].unique()
     district = st.selectbox('Select District:', districts)
 
-    if st.button('Show Crime Data'):
-        st.session_state.state = state
-        st.session_state.district = district
-        st.session_state.page = 'Crime Data'
+    if st.button('Proceed to Crime Data Analysis'):
+        if state and district:
+            st.session_state.state = state
+            st.session_state.district = district
+            st.session_state.page = 'CrimeAnalysisPage'
+        else:
+            st.warning("Please select both state and district.")
 
-# Crime Data Page - Display insights and analysis
-if st.session_state.page == 'Crime Data':
+# Crime Analysis Page - Crime Data Display
+def crime_analysis_page():
+    st.title("🔍 Crime Data Analysis for Selected Location")
+
     state = st.session_state.state
     district = st.session_state.district
 
-    filtered_data = data[
-        (data['state/ut'] == state) &
-        (data['district'] == district) &
-        (data['year'].isin([2023, 2024]))
+    filtered_data = crime_data[
+        (crime_data['state/ut'] == state) & 
+        (crime_data['district'] == district)
     ]
 
-    st.subheader(f'Crime Data for {district}, {state}')
+    # Calculate Crime Severity Index for 2022, 2023, and 2024
+    trend_data = {}
+    for year in [2022, 2023, 2024]:
+        yearly_data = filtered_data[filtered_data['year'] == year]
+        trend_data[year] = calculate_crime_severity(yearly_data)
 
-    # Crime Severity Score Calculation
-    crime_weights = {
-        'murder': 5,
-        'rape': 4,
-        'kidnapping & abduction': 4,
-        'robbery': 3,
-        'burglary': 2,
-        'dowry deaths': 3
-    }
-
-    def calculate_crime_severity(df):
-        weighted_sum = sum(df[col].sum() * weight for col, weight in crime_weights.items())
-        max_possible = sum(df[col].max() * weight for col, weight in crime_weights.items())
-        crime_index = (weighted_sum / max_possible) * 100  # Normalize to a 0-100 scale
-        return round(crime_index, 2)
-
-    crime_severity_index = calculate_crime_severity(filtered_data)
+    # Display Crime Severity Index for 2024
+    crime_severity_index = trend_data[2024]
     st.metric(label="Crime Severity Index (Higher is riskier)", value=crime_severity_index)
 
-    if crime_severity_index < 40:
-        st.success("🟢 This area is relatively safe.")
-    elif crime_severity_index < 70:
-        st.warning("🟠 Moderate risk; stay cautious.")
+    # Risk Assessment and Recommendations
+    if crime_severity_index < 25:
+        st.markdown("<div class='success-alert'>🟢 This area is relatively safe.</div>", unsafe_allow_html=True)
+        st.write("### Recommendations for Safe Zones:")
+        st.write("1. Maintain neighborhood watch programs to keep the community engaged.")
+        st.write("2. Increase public awareness through safety workshops.")
+        st.write("3. Foster community partnerships with local law enforcement.")
+    elif 25 <= crime_severity_index <= 55:
+        st.markdown("<div class='warning-alert'>🟠 Moderate risk; stay cautious.</div>", unsafe_allow_html=True)
+        st.write("### Recommendations for Moderate Risk Zones:")
+        st.write("1. Install additional street lighting in dark spots.")
+        st.write("2. Organize community patrols in higher crime areas.")
+        st.write("3. Encourage establishing local security services.")
     else:
-        st.error("🔴 High risk! Precaution is advised.")
+        st.markdown("<div class='danger-alert'>🔴 High risk! Precaution is advised.</div>", unsafe_allow_html=True)
+        st.write("### Recommendations for High-Risk Zones:")
+        st.write("1. Increase law enforcement presence in hotspot areas.")
+        st.write("2. Establish neighborhood vigilance programs.")
+        st.write("3. Launch emergency response systems with real-time alerts.")
 
-    # Crime Frequency Analysis
-    st.subheader('Crime Distribution')
-    crime_types = ['murder', 'rape', 'kidnapping & abduction', 'robbery', 'burglary', 'dowry deaths']
-    crime_frequencies = filtered_data[crime_types].sum().sort_values(ascending=False)
-    st.bar_chart(crime_frequencies)
-
-    # Crime Trend Visualization (2021-2024) - All trends in one graph
-    st.subheader('Crime Trends Over the Years')
-    trend_data = data[(data['state/ut'] == state) & (data['district'] == district) & (data['year'].isin([2021, 2022, 2023, 2024]))]
-    
-    # Create a combined plot for all crime types across years
-    plt.figure(figsize=(10, 6))
-    for crime in crime_types:
-        crime_sum_by_year = trend_data.groupby('year')[crime].sum()
-        plt.plot(crime_sum_by_year.index, crime_sum_by_year.values, label=crime)
-    
-    plt.title(f'Crime Trends for {district}, {state} (2021-2024)')
-    plt.xlabel('Year')
-    plt.ylabel('Crime Count')
-    plt.legend(title="Crime Types")
-    st.pyplot(plt)
-
-    # Safety Recommendations
-    st.subheader('Safety Recommendations')
-    if crime_frequencies['murder'] > 50:
-        st.warning("🔴 Avoid high-crime areas at night and stay vigilant.")
-    if crime_frequencies['rape'] > 30:
-        st.warning("⚠️ Travel in groups and use verified transport services.")
-    if crime_frequencies['burglary'] > 100:
-        st.warning("🏠 Install security systems and inform neighbors when away.")
-
-    # Interactive Crime Heatmap
+    # Crime Hotspot Map with colored circles
     st.subheader('Crime Hotspot Map')
-    m = folium.Map(location=[filtered_data['latitude'].mean(), filtered_data['longitude'].mean()], zoom_start=10)
 
-    # Position map control on the left side by setting position to 'topleft' (default is 'topright')
-    folium.LayerControl(position='topleft').add_to(m)
+    location_row = location_data[
+        (location_data['State'] == state) & 
+        (location_data['District'] == district)
+    ]
 
-    for idx, row in filtered_data.iterrows():
-        folium.Marker([row['latitude'], row['longitude']], popup=f"Crime: {row['murder']} Murders").add_to(m)
-    
-    folium_static(m)
+    if not location_row.empty:
+        latitude, longitude = location_row.iloc[0]['Latitude'], location_row.iloc[0]['Longitude']
+        
+        # Initialize map
+        m = folium.Map(location=[latitude, longitude], zoom_start=10)
 
-    # Back Button
-    if st.button('Go Back'):
-        st.session_state.page = 'Home'
+        # Set circle color based on crime severity
+        if crime_severity_index < 25:
+            color = 'green'  # Safe zone
+        elif 25 <= crime_severity_index <= 55:
+            color = 'orange'  # Moderate risk
+        else:
+            color = 'red'  # High risk
+        
+        # Add a big CircleMarker to the map
+        folium.CircleMarker(
+            location=[latitude, longitude],
+            radius=50,  # Bigger circle
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.7,
+            popup=f"Crime Severity Index: {crime_severity_index}"
+        ).add_to(m)
+        
+        folium_static(m)
+    else:
+        st.warning("Coordinates for the selected district were not found.")
+
+    # Crime Severity Trend Line Chart after the map
+    st.subheader("Crime Severity Trend (2022 - 2024)")
+    st.line_chart(pd.DataFrame(trend_data, index=["Crime Severity Index"]).T)
+
+# Main code for app flow
+if 'page' not in st.session_state:
+    st.session_state.page = 'LoginPage'
+
+# Page routing based on session state
+if st.session_state.page == 'LoginPage':
+    login_page()
+elif st.session_state.page == 'LocationInputPage':
+    location_input_page()
+elif st.session_state.page == 'CrimeAnalysisPage':
+    crime_analysis_page()
