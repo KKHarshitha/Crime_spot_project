@@ -158,24 +158,28 @@ if st.session_state.page == 'CrimeAnalysisPage':
     if crime_frequencies['burglary'] > 100:
         st.warning("🏠 Install security systems and inform neighbors when away.")
     
-    # Interactive Crime Hotspot Map
-st.subheader('Crime Hotspot Map')
+    # Check if latitude and longitude columns exist in filtered_data
+    if 'latitude' in filtered_data.columns and 'longitude' in filtered_data.columns:
+        try:
+            # Print the columns and the first few rows of filtered_data for debugging
+            st.write("Columns in filtered_data:", filtered_data.columns)
+            st.write("First few rows of filtered_data:", filtered_data.head())
 
-# Check if latitude and longitude columns exist in filtered_data
-if 'latitude' in filtered_data.columns and 'longitude' in filtered_data.columns:
-    try:
-        # Get the average latitude and longitude for the map center
-        avg_lat = filtered_data['latitude'].mean()
-        avg_lon = filtered_data['longitude'].mean()
-        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=10)
+            # Get the average latitude and longitude for the map center
+            avg_lat = filtered_data['latitude'].mean()
+            avg_lon = filtered_data['longitude'].mean()
+
+            # Create a map centered around the mean latitude and longitude
+            m = folium.Map(location=[avg_lat, avg_lon], zoom_start=10)
+            
+            # Add crime markers to the map
+            for idx, row in filtered_data.iterrows():
+                folium.Marker([row['latitude'], row['longitude']], popup=f"Crime: {row['murder']} Murders").add_to(m)
+            
+            folium_static(m)
         
-        # Add crime markers to the map
-        for idx, row in filtered_data.iterrows():
-            folium.Marker([row['latitude'], row['longitude']], popup=f"Crime: {row['murder']} Murders").add_to(m)
-        
-        folium_static(m)
-    
-    except Exception as e:
-        st.error(f"Error generating map: {e}")
-else:
-    st.warning("Latitude and/or Longitude data is missing from the selected district. Please check the data.")
+        except Exception as e:
+            st.error(f"Error generating map: {e}")
+    else:
+        st.warning("Latitude and/or Longitude data is missing from the selected district. Please check the data.")
+        st.write("Columns in filtered_data:", filtered_data.columns)  # Display columns to verify the issue
