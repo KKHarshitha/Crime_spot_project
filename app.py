@@ -159,17 +159,23 @@ if st.session_state.page == 'CrimeAnalysisPage':
         st.warning("🏠 Install security systems and inform neighbors when away.")
     
     # Interactive Crime Hotspot Map
-    st.subheader('Crime Hotspot Map')
-    m = folium.Map(location=[filtered_data['latitude'].mean(), filtered_data['longitude'].mean()], zoom_start=10)
+st.subheader('Crime Hotspot Map')
 
-    # Position map control on the left side by setting position to 'topleft' (default is 'topright')
-    folium.LayerControl(position='topleft').add_to(m)
-
-    for idx, row in filtered_data.iterrows():
-        folium.Marker([row['latitude'], row['longitude']], popup=f"Crime: {row['murder']} Murders").add_to(m)
+# Check if latitude and longitude columns exist in filtered_data
+if 'latitude' in filtered_data.columns and 'longitude' in filtered_data.columns:
+    try:
+        # Get the average latitude and longitude for the map center
+        avg_lat = filtered_data['latitude'].mean()
+        avg_lon = filtered_data['longitude'].mean()
+        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=10)
+        
+        # Add crime markers to the map
+        for idx, row in filtered_data.iterrows():
+            folium.Marker([row['latitude'], row['longitude']], popup=f"Crime: {row['murder']} Murders").add_to(m)
+        
+        folium_static(m)
     
-    folium_static(m)
-    
-    # Back Button
-    if st.button('Go Back'):
-        st.session_state.page = 'StateInputPage'
+    except Exception as e:
+        st.error(f"Error generating map: {e}")
+else:
+    st.warning("Latitude and/or Longitude data is missing from the selected district. Please check the data.")
