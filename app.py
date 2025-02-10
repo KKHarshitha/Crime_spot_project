@@ -2,11 +2,9 @@ import streamlit as st
 import pandas as pd
 import folium
 import matplotlib.pyplot as plt
-import seaborn as sns
 from streamlit_folium import folium_static
-from statsmodels.tsa.arima.model import ARIMA
 
-# Load the dataset
+# Load the datasets
 @st.cache_data
 def load_crime_data():
     return pd.read_pickle('crime_data.pkl')
@@ -127,3 +125,4 @@ if st.session_state.page == 'CrimeData':
     # Back Button
     if st.button('Go Back'):
         st.session_state.page = 'Home'
+
