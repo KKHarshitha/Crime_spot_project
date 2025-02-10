@@ -8,3 +8,6 @@ statsmodels==0.14.1
 numpy==1.26.3
 scipy==1.11.4
 scikit-learn==1.2.2
+git add
+git commit -m 
+git push origin main
